@@ -1,0 +1,27 @@
+{
+  "functions": [
+    {
+      "source": "firebase_functions_python",
+      "codebase": "default",
+      "runtime": "python311"
+    }
+  ],
+  "hosting": {
+    "public": "public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/health",
+        "function": "health"
+      },
+      {
+        "source": "/ocr",
+        "function": "ocr"
+      }
+    ]
+  }
+}

@@ -227,5 +227,5 @@ def process_ocr_file():
         return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5000))
+    port = int(os.getenv('PORT', 5001))  # Changed default port to avoid AirPlay conflict
     app.run(host='0.0.0.0', port=port, debug=False)

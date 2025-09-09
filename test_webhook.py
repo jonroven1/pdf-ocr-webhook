@@ -31,7 +31,7 @@ def test_webhook():
     }
     
     # Test local webhook (if running locally)
-    local_url = "http://localhost:5000/ocr"
+    local_url = "http://localhost:5001/ocr"
     heroku_url = "https://your-pdf-ocr-webhook.herokuapp.com/ocr"  # Replace with your actual URL
     
     print("Testing OCR webhook...")
