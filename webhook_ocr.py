@@ -126,7 +126,17 @@ except Exception as e:
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
-    return jsonify({"status": "healthy", "ocr_available": ocr_processor is not None})
+    # Check if credentials are available
+    client_id = os.getenv('PDF_SERVICES_CLIENT_ID')
+    client_secret = os.getenv('PDF_SERVICES_CLIENT_SECRET')
+    
+    return jsonify({
+        "status": "healthy",
+        "ocr_available": ocr_processor is not None,
+        "credentials_loaded": bool(client_id and client_secret),
+        "client_id_set": bool(client_id),
+        "client_secret_set": bool(client_secret)
+    })
 
 @app.route('/ocr', methods=['POST'])
 def process_ocr():
