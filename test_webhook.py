@@ -30,21 +30,20 @@ def test_webhook():
         "ocr_type": "SEARCHABLE_IMAGE"
     }
     
-    # Test local webhook (if running locally)
-    local_url = "http://localhost:5001/ocr"
-    heroku_url = "https://your-pdf-ocr-webhook.herokuapp.com/ocr"  # Replace with your actual URL
+    # Test Railway webhook
+    railway_url = "https://web-production-c0acd.up.railway.app/ocr"
     
     print("Testing OCR webhook...")
     print(f"PDF size: {len(pdf_data)} bytes")
     
     try:
         # Test health endpoint first
-        health_response = requests.get(f"{local_url.replace('/ocr', '/health')}")
+        health_response = requests.get(f"{railway_url.replace('/ocr', '/health')}")
         print(f"Health check: {health_response.status_code} - {health_response.json()}")
         
         # Test OCR endpoint
         response = requests.post(
-            local_url,
+            railway_url,
             json=test_data,
             headers={'Content-Type': 'application/json'},
             timeout=60
@@ -72,8 +71,8 @@ def test_webhook():
             print(response.text)
             
     except requests.exceptions.ConnectionError:
-        print("❌ Connection error: Make sure the webhook is running locally")
-        print("Run: python webhook_ocr.py")
+        print("❌ Connection error: Could not connect to Railway webhook")
+        print("Check if the webhook is deployed and running")
     except Exception as e:
         print(f"❌ Error: {e}")
 

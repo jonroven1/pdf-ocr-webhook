@@ -78,7 +78,7 @@ class OCRWebhook:
             stream_asset: StreamAsset = self.pdf_services.get_content(result_asset)
             
             # Read the result data before cleanup
-            result_data = stream_asset.get_input_stream().read()
+            result_data = stream_asset.get_input_stream()
             
             # Clean up assets immediately after processing
             self._cleanup_assets(input_asset, result_asset)
