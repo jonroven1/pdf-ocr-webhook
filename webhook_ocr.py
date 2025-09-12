@@ -11,6 +11,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import tempfile
+import requests
 
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.exception.exceptions import ServiceApiException, ServiceUsageException, SdkException
@@ -115,6 +116,47 @@ class OCRWebhook:
         except Exception as e:
             logger.warning(f"Asset cleanup failed (non-critical): {str(e)}")
             # Don't raise the exception as cleanup failure shouldn't break the main flow
+
+    def _upload_to_dropbox(self, pdf_data, filename):
+        """
+        Upload OCR'd PDF directly to Dropbox
+        """
+        try:
+            dropbox_token = os.getenv('DROPBOX_ACCESS_TOKEN')
+            if not dropbox_token:
+                logger.warning("No Dropbox access token provided")
+                return None
+                
+            # Dropbox API endpoint
+            url = "https://content.dropboxapi.com/2/files/upload"
+            
+            # Dropbox API arguments
+            dropbox_args = {
+                "path": f"/OCR_Results/{filename}",
+                "mode": "add",
+                "autorename": True
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {dropbox_token}",
+                "Dropbox-API-Arg": json.dumps(dropbox_args),
+                "Content-Type": "application/octet-stream"
+            }
+            
+            # Upload the file
+            response = requests.post(url, headers=headers, data=pdf_data)
+            
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"Successfully uploaded to Dropbox: {result.get('path_display', 'unknown')}")
+                return result.get('path_display', result.get('path_lower'))
+            else:
+                logger.error(f"Dropbox upload failed: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Dropbox upload error: {str(e)}")
+            return None
 
 # Initialize OCR processor
 try:
@@ -324,6 +366,100 @@ def process_ocr_download():
             "file_name": filename,
             "file_size": len(ocr_result),
             "mime_type": "application/pdf",
+            "original_size": len(pdf_data),
+            "processed_size": len(ocr_result),
+            "timestamp": datetime.now().isoformat(),
+            "assets_cleaned": True
+        })
+
+    except Exception as e:
+        logger.error(f"OCR processing error: {str(e)}")
+        return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
+
+@app.route('/ocr-dropbox', methods=['POST'])
+def process_ocr_dropbox():
+    """
+    OCR endpoint that automatically uploads the result to Dropbox
+    """
+    try:
+        if not ocr_processor:
+            return jsonify({"error": "OCR service not available"}), 500
+
+        # Handle different content types
+        data = None
+        
+        # Try to get JSON data first
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json()
+        
+        # If no JSON, try form data
+        elif request.form:
+            data = dict(request.form)
+        
+        # If no form data, try raw data
+        elif request.get_data():
+            try:
+                data = request.get_json(force=True)
+            except:
+                pass
+
+        # Extract PDF data - handle multiple formats
+        pdf_data = None
+        
+        # Check if pdf_data is provided (base64 encoded)
+        pdf_data_b64 = data.get('pdf_data') if data else None
+        if pdf_data_b64:
+            try:
+                # Clean up base64 string
+                pdf_data_b64 = pdf_data_b64.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                
+                # Add padding if needed
+                missing_padding = len(pdf_data_b64) % 4
+                if missing_padding:
+                    pdf_data_b64 += '=' * (4 - missing_padding)
+                
+                # Try to decode as base64
+                pdf_data = base64.b64decode(pdf_data_b64)
+                
+                # Validate that it's actually a PDF
+                if not pdf_data.startswith(b'%PDF'):
+                    return jsonify({"error": "Decoded data is not a valid PDF file"}), 400
+                    
+            except Exception as e:
+                return jsonify({"error": f"Invalid base64 PDF data: {str(e)}"}), 400
+        
+        # Check if file is provided in request
+        elif 'file' in request.files:
+            file = request.files['file']
+            if file and file.filename.endswith('.pdf'):
+                pdf_data = file.read()
+        
+        # Check if raw binary data is provided
+        elif request.content_type and 'application/octet-stream' in request.content_type:
+            pdf_data = request.get_data()
+        
+        if not pdf_data:
+            return jsonify({"error": "No PDF data provided"}), 400
+
+        # Get optional parameters
+        locale = data.get('locale', 'en-US') if data else 'en-US'
+        ocr_type = data.get('ocr_type', 'SEARCHABLE_IMAGE') if data else 'SEARCHABLE_IMAGE'
+        
+        # Process PDF with OCR
+        ocr_result = ocr_processor.process_pdf_ocr(pdf_data, locale, ocr_type)
+        
+        # Generate filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"ocr_{timestamp}.pdf"
+        
+        # Upload to Dropbox
+        dropbox_path = ocr_processor._upload_to_dropbox(ocr_result, filename)
+        
+        return jsonify({
+            "success": True,
+            "message": "PDF processed and uploaded to Dropbox",
+            "dropbox_path": dropbox_path,
+            "filename": filename,
             "original_size": len(pdf_data),
             "processed_size": len(ocr_result),
             "timestamp": datetime.now().isoformat(),
