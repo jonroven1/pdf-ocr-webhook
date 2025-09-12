@@ -152,17 +152,36 @@ def process_ocr():
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON data provided"}), 400
+        
+        # Log the request details for debugging
+        logger.info(f"Request content-type: {request.content_type}")
+        logger.info(f"Request data keys: {list(data.keys()) if data else 'None'}")
+        logger.info(f"Files in request: {list(request.files.keys()) if request.files else 'None'}")
 
-        # Extract PDF data (base64 encoded)
+        # Extract PDF data - handle multiple formats
+        pdf_data = None
+        
+        # Check if pdf_data is provided (base64 encoded)
         pdf_data_b64 = data.get('pdf_data')
-        if not pdf_data_b64:
-            return jsonify({"error": "No pdf_data provided"}), 400
-
-        # Decode base64 PDF data
-        try:
-            pdf_data = base64.b64decode(pdf_data_b64)
-        except Exception as e:
-            return jsonify({"error": f"Invalid base64 PDF data: {str(e)}"}), 400
+        if pdf_data_b64:
+            try:
+                # Try to decode as base64
+                pdf_data = base64.b64decode(pdf_data_b64)
+            except Exception as e:
+                return jsonify({"error": f"Invalid base64 PDF data: {str(e)}"}), 400
+        
+        # Check if file is provided in request (for direct file uploads)
+        elif 'file' in request.files:
+            file = request.files['file']
+            if file and file.filename.endswith('.pdf'):
+                pdf_data = file.read()
+        
+        # Check if raw binary data is provided
+        elif request.content_type and 'application/octet-stream' in request.content_type:
+            pdf_data = request.get_data()
+        
+        if not pdf_data:
+            return jsonify({"error": "No PDF data provided. Send 'pdf_data' (base64) or upload file directly"}), 400
 
         # Get optional parameters
         locale = data.get('locale', 'en-US')
