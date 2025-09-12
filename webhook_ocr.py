@@ -165,9 +165,25 @@ def process_ocr():
         pdf_data_b64 = data.get('pdf_data')
         if pdf_data_b64:
             try:
+                # Clean up base64 string (remove any whitespace/newlines)
+                pdf_data_b64 = pdf_data_b64.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                
+                # Add padding if needed
+                missing_padding = len(pdf_data_b64) % 4
+                if missing_padding:
+                    pdf_data_b64 += '=' * (4 - missing_padding)
+                
                 # Try to decode as base64
                 pdf_data = base64.b64decode(pdf_data_b64)
+                
+                # Validate that it's actually a PDF
+                if not pdf_data.startswith(b'%PDF'):
+                    return jsonify({"error": "Decoded data is not a valid PDF file"}), 400
+                    
+                logger.info(f"Successfully decoded PDF: {len(pdf_data)} bytes")
+                
             except Exception as e:
+                logger.error(f"Base64 decode error: {str(e)}")
                 return jsonify({"error": f"Invalid base64 PDF data: {str(e)}"}), 400
         
         # Check if file is provided in request (for direct file uploads)
