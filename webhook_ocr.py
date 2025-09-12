@@ -148,21 +148,40 @@ def process_ocr():
         if not ocr_processor:
             return jsonify({"error": "OCR service not available"}), 500
 
-        # Get JSON data from request
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No JSON data provided"}), 400
+        # Handle different content types
+        data = None
         
         # Log the request details for debugging
         logger.info(f"Request content-type: {request.content_type}")
-        logger.info(f"Request data keys: {list(data.keys()) if data else 'None'}")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Request headers: {dict(request.headers)}")
+        
+        # Try to get JSON data first
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json()
+            logger.info(f"JSON data keys: {list(data.keys()) if data else 'None'}")
+        
+        # If no JSON, try form data
+        elif request.form:
+            data = dict(request.form)
+            logger.info(f"Form data keys: {list(data.keys())}")
+        
+        # If no form data, try raw data
+        elif request.get_data():
+            # Try to parse as JSON
+            try:
+                data = request.get_json(force=True)
+                logger.info(f"Parsed JSON from raw data: {list(data.keys()) if data else 'None'}")
+            except:
+                logger.info("Could not parse as JSON, treating as raw data")
+        
         logger.info(f"Files in request: {list(request.files.keys()) if request.files else 'None'}")
 
         # Extract PDF data - handle multiple formats
         pdf_data = None
         
         # Check if pdf_data is provided (base64 encoded)
-        pdf_data_b64 = data.get('pdf_data')
+        pdf_data_b64 = data.get('pdf_data') if data else None
         if pdf_data_b64:
             try:
                 # Clean up base64 string (remove any whitespace/newlines)
@@ -200,8 +219,8 @@ def process_ocr():
             return jsonify({"error": "No PDF data provided. Send 'pdf_data' (base64) or upload file directly"}), 400
 
         # Get optional parameters
-        locale = data.get('locale', 'en-US')
-        ocr_type = data.get('ocr_type', 'SEARCHABLE_IMAGE')
+        locale = data.get('locale', 'en-US') if data else 'en-US'
+        ocr_type = data.get('ocr_type', 'SEARCHABLE_IMAGE') if data else 'SEARCHABLE_IMAGE'
         
         # Process PDF with OCR
         logger.info(f"Processing PDF with locale: {locale}, type: {ocr_type}")
