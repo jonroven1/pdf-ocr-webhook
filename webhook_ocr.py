@@ -117,7 +117,7 @@ class OCRWebhook:
             logger.warning(f"Asset cleanup failed (non-critical): {str(e)}")
             # Don't raise the exception as cleanup failure shouldn't break the main flow
 
-    def _list_dropbox_files(self, folder_path="/0 - MAIL ROOM"):
+    def _list_dropbox_files(self, folder_path=""):
         """
         List files in Dropbox folder
         """
@@ -136,8 +136,8 @@ class OCRWebhook:
             }
             
             data = {
-                "path": folder_path,
-                "recursive": False
+                "path": folder_path if folder_path else "",
+                "recursive": True  # Search all subfolders
             }
             
             response = requests.post(url, headers=headers, json=data)
@@ -154,7 +154,7 @@ class OCRWebhook:
                             'size': entry.get('size', 0),
                             'modified': entry.get('client_modified', entry.get('server_modified'))
                         })
-                logger.info(f"Found {len(files)} PDF files in {folder_path}")
+                logger.info(f"Found {len(files)} PDF files in {'entire Dropbox' if not folder_path else folder_path}")
                 return files
             else:
                 logger.error(f"Failed to list Dropbox files: {response.status_code} - {response.text}")
@@ -208,9 +208,9 @@ class OCRWebhook:
             # Dropbox API endpoint
             url = "https://content.dropboxapi.com/2/files/upload"
             
-            # Dropbox API arguments
+            # Dropbox API arguments - upload to same folder as original
             dropbox_args = {
-                "path": f"/0 - MAIL ROOM/{filename}",
+                "path": f"{filename}",
                 "mode": "add",
                 "autorename": True
             }
@@ -548,21 +548,21 @@ def process_ocr_dropbox():
         logger.error(f"OCR processing error: {str(e)}")
         return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
 
-@app.route('/check-mailroom', methods=['POST', 'GET'])
-def check_mailroom():
+@app.route('/check-dropbox', methods=['POST', 'GET'])
+def check_dropbox():
     """
-    Check /0 - MAIL ROOM folder for new PDFs and OCR them automatically
+    Check entire Dropbox for new PDFs and OCR them automatically
     """
     try:
         if not ocr_processor:
             return jsonify({"error": "OCR service not available"}), 500
 
-        # List all PDF files in the mail room
-        files = ocr_processor._list_dropbox_files("/0 - MAIL ROOM")
+        # List all PDF files in entire Dropbox
+        files = ocr_processor._list_dropbox_files("")
         
         if not files:
             return jsonify({
-                "message": "No PDF files found in /0 - MAIL ROOM",
+                "message": "No PDF files found in Dropbox",
                 "processed_count": 0
             })
         
@@ -587,25 +587,34 @@ def check_mailroom():
                 logger.info(f"Processing {file_info['name']} with OCR")
                 ocr_result = ocr_processor.process_pdf_ocr(pdf_data, 'en-US', 'SEARCHABLE_IMAGE')
                 
-                # Create OCR'd filename
+                # Create OCR'd filename - keep original folder structure
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                ocr_filename = f"ocr_{timestamp}_{file_info['name']}"
+                original_path = file_info['path']
+                original_folder = '/'.join(original_path.split('/')[:-1]) if '/' in original_path else ""
+                original_name = file_info['name']
+                ocr_filename = f"ocr_{timestamp}_{original_name}"
                 
-                # Upload OCR'd version back to the same folder
-                ocr_path = ocr_processor._upload_to_dropbox(ocr_result, ocr_filename)
+                # Upload OCR'd version to the same folder as original
+                if original_folder:
+                    ocr_path = f"{original_folder}/{ocr_filename}"
+                else:
+                    ocr_path = ocr_filename
                 
-                if ocr_path:
+                # Upload the file
+                upload_success = ocr_processor._upload_to_dropbox(ocr_result, ocr_path)
+                
+                if upload_success:
                     processed_count += 1
                     results.append({
-                        "original": file_info['name'],
+                        "original": file_info['path'],
                         "ocr_file": ocr_filename,
                         "dropbox_path": ocr_path,
                         "status": "success"
                     })
-                    logger.info(f"Successfully processed {file_info['name']} -> {ocr_filename}")
+                    logger.info(f"Successfully processed {file_info['path']} -> {ocr_path}")
                 else:
                     results.append({
-                        "original": file_info['name'],
+                        "original": file_info['path'],
                         "status": "failed - upload error"
                     })
                     
@@ -617,7 +626,7 @@ def check_mailroom():
                 })
         
         return jsonify({
-            "message": f"Mail room check completed",
+            "message": f"Dropbox check completed",
             "total_files": len(files),
             "processed_count": processed_count,
             "results": results,
@@ -625,8 +634,8 @@ def check_mailroom():
         })
 
     except Exception as e:
-        logger.error(f"Mail room check error: {str(e)}")
-        return jsonify({"error": f"Mail room check failed: {str(e)}"}), 500
+        logger.error(f"Dropbox check error: {str(e)}")
+        return jsonify({"error": f"Dropbox check failed: {str(e)}"}), 500
 
 @app.route('/ocr-file', methods=['POST'])
 def process_ocr_file():
