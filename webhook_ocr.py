@@ -242,6 +242,92 @@ def process_ocr():
         logger.error(f"OCR processing error: {str(e)}")
         return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
 
+@app.route('/ocr-download', methods=['POST'])
+def process_ocr_download():
+    """
+    OCR endpoint that returns the actual PDF file for download
+    """
+    try:
+        if not ocr_processor:
+            return jsonify({"error": "OCR service not available"}), 500
+
+        # Handle different content types
+        data = None
+        
+        # Try to get JSON data first
+        if request.content_type and 'application/json' in request.content_type:
+            data = request.get_json()
+        
+        # If no JSON, try form data
+        elif request.form:
+            data = dict(request.form)
+        
+        # If no form data, try raw data
+        elif request.get_data():
+            try:
+                data = request.get_json(force=True)
+            except:
+                pass
+
+        # Extract PDF data - handle multiple formats
+        pdf_data = None
+        
+        # Check if pdf_data is provided (base64 encoded)
+        pdf_data_b64 = data.get('pdf_data') if data else None
+        if pdf_data_b64:
+            try:
+                # Clean up base64 string
+                pdf_data_b64 = pdf_data_b64.strip().replace('\n', '').replace('\r', '').replace(' ', '')
+                
+                # Add padding if needed
+                missing_padding = len(pdf_data_b64) % 4
+                if missing_padding:
+                    pdf_data_b64 += '=' * (4 - missing_padding)
+                
+                # Try to decode as base64
+                pdf_data = base64.b64decode(pdf_data_b64)
+                
+                # Validate that it's actually a PDF
+                if not pdf_data.startswith(b'%PDF'):
+                    return jsonify({"error": "Decoded data is not a valid PDF file"}), 400
+                    
+            except Exception as e:
+                return jsonify({"error": f"Invalid base64 PDF data: {str(e)}"}), 400
+        
+        # Check if file is provided in request
+        elif 'file' in request.files:
+            file = request.files['file']
+            if file and file.filename.endswith('.pdf'):
+                pdf_data = file.read()
+        
+        # Check if raw binary data is provided
+        elif request.content_type and 'application/octet-stream' in request.content_type:
+            pdf_data = request.get_data()
+        
+        if not pdf_data:
+            return jsonify({"error": "No PDF data provided"}), 400
+
+        # Get optional parameters
+        locale = data.get('locale', 'en-US') if data else 'en-US'
+        ocr_type = data.get('ocr_type', 'SEARCHABLE_IMAGE') if data else 'SEARCHABLE_IMAGE'
+        
+        # Process PDF with OCR
+        ocr_result = ocr_processor.process_pdf_ocr(pdf_data, locale, ocr_type)
+        
+        # Return the PDF file directly
+        from flask import Response
+        return Response(
+            ocr_result,
+            mimetype='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="ocr_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"OCR processing error: {str(e)}")
+        return jsonify({"error": f"OCR processing failed: {str(e)}"}), 500
+
 @app.route('/ocr-file', methods=['POST'])
 def process_ocr_file():
     """
