@@ -314,15 +314,21 @@ def process_ocr_download():
         # Process PDF with OCR
         ocr_result = ocr_processor.process_pdf_ocr(pdf_data, locale, ocr_type)
         
-        # Return the PDF file directly
-        from flask import Response
-        return Response(
-            ocr_result,
-            mimetype='application/pdf',
-            headers={
-                'Content-Disposition': f'attachment; filename="ocr_{datetime.now().strftime("%Y%m%d_%H%M%S")}.pdf"'
-            }
-        )
+        # Return JSON with file data for Zapier compatibility
+        result_b64 = base64.b64encode(ocr_result).decode('utf-8')
+        filename = f"ocr_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        
+        return jsonify({
+            "success": True,
+            "file_content": result_b64,
+            "file_name": filename,
+            "file_size": len(ocr_result),
+            "mime_type": "application/pdf",
+            "original_size": len(pdf_data),
+            "processed_size": len(ocr_result),
+            "timestamp": datetime.now().isoformat(),
+            "assets_cleaned": True
+        })
 
     except Exception as e:
         logger.error(f"OCR processing error: {str(e)}")
