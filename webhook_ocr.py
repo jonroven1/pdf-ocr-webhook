@@ -142,11 +142,21 @@ class OCRWebhook:
             
             response = requests.post(url, headers=headers, json=data)
             
+            logger.info(f"Dropbox API response status: {response.status_code}")
+            logger.info(f"Dropbox API response: {response.text[:500]}...")
+            
             if response.status_code == 200:
                 result = response.json()
+                all_entries = result.get('entries', [])
+                logger.info(f"Total entries found: {len(all_entries)}")
+                
                 files = []
-                for entry in result.get('entries', []):
-                    if entry.get('.tag') == 'file' and entry.get('name', '').lower().endswith('.pdf'):
+                for entry in all_entries:
+                    entry_type = entry.get('.tag', 'unknown')
+                    entry_name = entry.get('name', 'unnamed')
+                    logger.info(f"Entry: {entry_name} (type: {entry_type})")
+                    
+                    if entry_type == 'file' and entry_name.lower().endswith('.pdf'):
                         files.append({
                             'name': entry['name'],
                             'path': entry['path_lower'],
@@ -154,6 +164,8 @@ class OCRWebhook:
                             'size': entry.get('size', 0),
                             'modified': entry.get('client_modified', entry.get('server_modified'))
                         })
+                        logger.info(f"Added PDF: {entry_name}")
+                
                 logger.info(f"Found {len(files)} PDF files in {'entire Dropbox' if not folder_path else folder_path}")
                 return files
             else:
@@ -249,14 +261,60 @@ def health_check():
     # Check if credentials are available
     client_id = os.getenv('PDF_SERVICES_CLIENT_ID')
     client_secret = os.getenv('PDF_SERVICES_CLIENT_SECRET')
+    dropbox_token = os.getenv('DROPBOX_ACCESS_TOKEN')
     
     return jsonify({
         "status": "healthy",
         "ocr_available": ocr_processor is not None,
         "credentials_loaded": bool(client_id and client_secret),
         "client_id_set": bool(client_id),
-        "client_secret_set": bool(client_secret)
+        "client_secret_set": bool(client_secret),
+        "dropbox_token_set": bool(dropbox_token),
+        "dropbox_token_preview": dropbox_token[:10] + "..." if dropbox_token else None
     })
+
+@app.route('/test-dropbox', methods=['GET'])
+def test_dropbox():
+    """Test Dropbox connection"""
+    try:
+        if not ocr_processor:
+            return jsonify({"error": "OCR processor not available"}), 500
+            
+        # Test Dropbox API connection
+        dropbox_token = os.getenv('DROPBOX_ACCESS_TOKEN')
+        if not dropbox_token:
+            return jsonify({"error": "No Dropbox token found"}), 400
+            
+        # Try to get account info
+        url = "https://api.dropboxapi.com/2/users/get_current_account"
+        headers = {
+            "Authorization": f"Bearer {dropbox_token}",
+            "Content-Type": "application/json"
+        }
+        
+        response = requests.post(url, headers=headers, json={})
+        
+        if response.status_code == 200:
+            account_info = response.json()
+            return jsonify({
+                "success": True,
+                "account_name": account_info.get('name', {}).get('display_name', 'Unknown'),
+                "account_email": account_info.get('email', 'Unknown'),
+                "token_valid": True
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": f"Dropbox API error: {response.status_code} - {response.text}",
+                "token_valid": False
+            })
+            
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Test failed: {str(e)}",
+            "token_valid": False
+        }), 500
 
 @app.route('/ocr', methods=['POST'])
 def process_ocr():
